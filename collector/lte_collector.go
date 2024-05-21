@@ -71,7 +71,7 @@ func (c *lteCollector) fetchInterfaceNames(ctx *collectorContext) ([]string, err
 }
 
 func (c *lteCollector) collectForInterface(iface string, ctx *collectorContext) error {
-	reply, err := ctx.client.Run("/interface/lte/info", fmt.Sprintf("=number=%s", iface), "=once=", "=.proplist="+strings.Join(c.props, ","))
+	reply, err := ctx.client.Run("/interface/lte/monitor", fmt.Sprintf("=number=%s", iface), "=once=", "=.proplist="+strings.Join(c.props, ","))
 	if err != nil {
 		log.WithFields(log.Fields{
 			"interface": iface,
