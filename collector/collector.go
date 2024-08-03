@@ -16,10 +16,10 @@ import (
 
 	"mikrotik-exporter/config"
 
+	routeros "github.com/go-routeros/routeros"
 	"github.com/miekg/dns"
 	"github.com/prometheus/client_golang/prometheus"
 	log "github.com/sirupsen/logrus"
-	routeros "gopkg.in/routeros.v2"
 )
 
 const (
@@ -354,7 +354,7 @@ func (c *collector) connectAndCollect(d *config.Device, ch chan<- prometheus.Met
 		ctx := &collectorContext{ch, d, cl}
 		err = co.collect(ctx)
 		if err != nil {
-			return err
+			log.Error("error collecting metrics")
 		}
 	}
 

@@ -5,9 +5,9 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/go-routeros/routeros/proto"
 	"github.com/prometheus/client_golang/prometheus"
 	log "github.com/sirupsen/logrus"
-	"gopkg.in/routeros.v2/proto"
 )
 
 type lteCollector struct {
@@ -22,7 +22,7 @@ func newLteCollector() routerOSCollector {
 }
 
 func (c *lteCollector) init() {
-	c.props = []string{"current-cellid", "primary-band" ,"ca-band", "rssi", "rsrp", "rsrq", "sinr"}
+	c.props = []string{"current-cellid", "primary-band", "ca-band", "rssi", "rsrp", "rsrq", "sinr", "lac", "sector-id", "phy-cellid", "cqi", "session-uptime"}
 	labelNames := []string{"name", "address", "interface", "cellid", "primaryband", "caband"}
 	c.descriptions = make(map[string]*prometheus.Desc)
 	for _, p := range c.props {
@@ -53,7 +53,10 @@ func (c *lteCollector) collect(ctx *collectorContext) error {
 }
 
 func (c *lteCollector) fetchInterfaceNames(ctx *collectorContext) ([]string, error) {
-	reply, err := ctx.client.Run("/interface/lte/print", "?disabled=false", "=.proplist=name")
+	log.WithFields(log.Fields{
+		"device": ctx.device.Name,
+	}).Info("fetching interface names")
+	reply, err := ctx.client.Run("/interface/lte/print", "=.proplist=name")
 	if err != nil {
 		log.WithFields(log.Fields{
 			"device": ctx.device.Name,
@@ -67,21 +70,43 @@ func (c *lteCollector) fetchInterfaceNames(ctx *collectorContext) ([]string, err
 		names = append(names, re.Map["name"])
 	}
 
+	log.WithFields(log.Fields{
+		"device": ctx.device.Name,
+		"names":  names,
+	}).Infof("fetched lte interface names: %v", names)
+
 	return names, nil
 }
 
 func (c *lteCollector) collectForInterface(iface string, ctx *collectorContext) error {
-	reply, err := ctx.client.Run("/interface/lte/info", fmt.Sprintf("=number=%s", iface), "=once=", "=.proplist="+strings.Join(c.props, ","))
+	log.WithFields(log.Fields{
+		"interface": iface,
+		"device":    ctx.device.Name,
+		"proplist":  strings.Join(c.props, ","),
+	}).Info("fetching stats")
+	reply, err := ctx.client.Run("/interface/lte/monitor", "=once=", fmt.Sprintf("=.id=%s", iface), "=.proplist="+strings.Join(c.props, ","))
+	//	reply, err := ctx.client.Run("/interface/lte/monitor", fmt.Sprintf("=numbers=lte1"), "=once=", "=.proplist="+strings.Join(c.props, ","))
+	//	reply, err := ctx.client.Run("/interface/lte/monitor", fmt.Sprintf("=number=%s", iface), "=once=")
 	if err != nil {
 		log.WithFields(log.Fields{
 			"interface": iface,
 			"device":    ctx.device.Name,
 			"error":     err,
-		}).Error("error fetching interface statistics")
+		}).Error("error fetching interface statistics - LTE")
 		return err
 	}
 
+	log.WithFields(log.Fields{
+		"interface": iface,
+		"device":    ctx.device.Name,
+		"error":     err,
+	}).Infof("Got reply: %v", reply)
+
 	for _, p := range c.props[3:] {
+		// panic: runtime error: index out of range [0] with length 0
+		if reply.Re == nil || len(reply.Re) == 0 {
+			continue
+		}
 		// there's always going to be only one sentence in reply, as we
 		// have to explicitly specify the interface
 		c.collectMetricForProperty(p, iface, reply.Re[0], ctx)
@@ -106,16 +131,31 @@ func (c *lteCollector) collectMetricForProperty(property, iface string, re *prot
 	if re.Map[property] == "" {
 		return
 	}
-	v, err := strconv.ParseFloat(re.Map[property], 64)
-	if err != nil {
-		log.WithFields(log.Fields{
-			"property":  property,
-			"interface": iface,
-			"device":    ctx.device.Name,
-			"error":     err,
-		}).Error("error parsing interface metric value")
-		return
-	}
 
-	ctx.ch <- prometheus.MustNewConstMetric(desc, prometheus.GaugeValue, v, ctx.device.Name, ctx.device.Address, iface, current_cellid, primaryband, caband)
+	if property == "session-uptime" {
+		v, err := parseDuration(re.Map[property])
+		if err != nil {
+			log.WithFields(log.Fields{
+				"property":  property,
+				"interface": iface,
+				"device":    ctx.device.Name,
+				"error":     err,
+			}).Error("error parsing interface duration metric value")
+			return
+		}
+		ctx.ch <- prometheus.MustNewConstMetric(desc, prometheus.CounterValue, v, ctx.device.Name, ctx.device.Address, iface, current_cellid, primaryband, caband)
+		return
+	} else {
+		v, err := strconv.ParseFloat(re.Map[property], 64)
+		if err != nil {
+			log.WithFields(log.Fields{
+				"property":  property,
+				"interface": iface,
+				"device":    ctx.device.Name,
+				"error":     err,
+			}).Error("error parsing interface metric value")
+			return
+		}
+		ctx.ch <- prometheus.MustNewConstMetric(desc, prometheus.GaugeValue, v, ctx.device.Name, ctx.device.Address, iface, current_cellid, primaryband, caband)
+	}
 }

@@ -6,8 +6,6 @@ import (
 	"io/ioutil"
 	"os"
 
-	"github.com/prometheus/common/version"
-
 	"fmt"
 	"net/http"
 
@@ -15,6 +13,7 @@ import (
 	"mikrotik-exporter/config"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/collectors/version"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	log "github.com/sirupsen/logrus"
 )
